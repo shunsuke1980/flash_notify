@@ -1,0 +1,237 @@
+#!/bin/bash
+
+# flash_notify - Flash macOS menu bar notification tool
+# Version: 1.0.0
+# License: MIT
+
+VERSION="1.0.0"
+FLASH_COUNT=2
+FLASH_INTERVAL=0.15
+DEBUG=false
+
+# Color codes for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+NC='\033[0m'
+
+# Print debug messages
+debug() {
+    if [ "$DEBUG" = true ]; then
+        echo "[DEBUG] $*" >&2
+    fi
+}
+
+# Print error messages
+error() {
+    echo -e "${RED}Error: $*${NC}" >&2
+}
+
+# Print success messages
+success() {
+    echo -e "${GREEN}$*${NC}"
+}
+
+# Show help message
+show_help() {
+    cat << EOF
+flash_notify - Flash macOS menu bar notification tool v${VERSION}
+
+USAGE:
+    flash_notify [OPTIONS] [COMMAND [ARGS...]]
+    flash_notify flash [COUNT] [INTERVAL]
+
+OPTIONS:
+    -h, --help      Show this help message
+    -v, --version   Show version information
+    -d, --debug     Enable debug output
+
+COMMANDS:
+    flash           Manually trigger menu bar flash
+                    COUNT: Number of flashes (default: 2)
+                    INTERVAL: Seconds between flashes (default: 0.15)
+
+EXAMPLES:
+    flash_notify sleep 5              # Run sleep command, then flash
+    flash_notify make build           # Run make build, then flash
+    flash_notify "npm install"        # Run npm install, then flash
+    flash_notify flash                # Flash menu bar manually
+    flash_notify flash 3 0.2          # Flash 3 times with 0.2s interval
+    
+    # One-liner usage:
+    make; flash_notify                # Run make, then flash
+    curl example.com; flash_notify    # Run curl, then flash
+
+NOTES:
+    - Flashes green on success (exit code 0)
+    - Flashes red on failure (non-zero exit code)
+    - Preserves the exit code of wrapped commands
+    - Requires macOS and appropriate permissions
+
+EOF
+}
+
+# Show version
+show_version() {
+    echo "flash_notify version ${VERSION}"
+}
+
+# Get current dark mode state
+get_dark_mode_state() {
+    osascript -e 'tell application "System Events" to tell appearance preferences to return dark mode' 2>/dev/null
+}
+
+# Set dark mode state
+set_dark_mode_state() {
+    local state=$1
+    osascript -e "tell application \"System Events\" to tell appearance preferences to set dark mode to $state" 2>/dev/null
+}
+
+# Flash the menu bar
+flash_menu_bar() {
+    local count=${1:-$FLASH_COUNT}
+    local interval=${2:-$FLASH_INTERVAL}
+    local preserve_exit_code=${3:-0}
+    
+    debug "Flashing $count times with ${interval}s interval"
+    
+    # Get original dark mode state
+    local original_state
+    original_state=$(get_dark_mode_state)
+    
+    if [ -z "$original_state" ]; then
+        error "Failed to get current dark mode state"
+        error "Please check System Preferences accessibility permissions"
+        return 1
+    fi
+    
+    debug "Original dark mode state: $original_state"
+    
+    # Perform flashes
+    for ((i=1; i<=count; i++)); do
+        # Toggle to opposite state
+        if [ "$original_state" = "true" ]; then
+            set_dark_mode_state false
+        else
+            set_dark_mode_state true
+        fi
+        
+        # Brief pause
+        sleep "$interval"
+        
+        # Toggle back
+        set_dark_mode_state "$original_state"
+        
+        # Pause between flashes (except after last flash)
+        if [ $i -lt $count ]; then
+            sleep "$interval"
+        fi
+    done
+    
+    debug "Flash complete, restored to original state"
+    
+    # Preserve the original exit code if provided
+    return $preserve_exit_code
+}
+
+# Main execution
+main() {
+    local command=""
+    local args=()
+    
+    # Parse options
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -h|--help)
+                show_help
+                exit 0
+                ;;
+            -v|--version)
+                show_version
+                exit 0
+                ;;
+            -d|--debug)
+                DEBUG=true
+                shift
+                ;;
+            -*)
+                error "Unknown option: $1"
+                echo "Use 'flash_notify --help' for usage information"
+                exit 1
+                ;;
+            *)
+                # First non-option argument is the command
+                if [ -z "$command" ]; then
+                    command="$1"
+                else
+                    args+=("$1")
+                fi
+                shift
+                ;;
+        esac
+    done
+    
+    # If no command provided, flash and exit
+    if [ -z "$command" ]; then
+        debug "No command provided, flashing menu bar"
+        flash_menu_bar
+        exit $?
+    fi
+    
+    # Special handling for 'flash' command
+    if [ "$command" = "flash" ]; then
+        local count="${args[0]:-$FLASH_COUNT}"
+        local interval="${args[1]:-$FLASH_INTERVAL}"
+        
+        # Validate numeric inputs
+        if ! [[ "$count" =~ ^[0-9]+$ ]] || [ "$count" -lt 1 ]; then
+            error "Flash count must be a positive integer"
+            exit 1
+        fi
+        
+        if ! [[ "$interval" =~ ^[0-9]*\.?[0-9]+$ ]]; then
+            error "Flash interval must be a positive number"
+            exit 1
+        fi
+        
+        flash_menu_bar "$count" "$interval"
+        exit $?
+    fi
+    
+    # Execute the provided command
+    debug "Executing command: $command ${args[*]}"
+    
+    if [ ${#args[@]} -eq 0 ]; then
+        # Simple command without arguments
+        eval "$command"
+    else
+        # Command with arguments
+        "$command" "${args[@]}"
+    fi
+    
+    local exit_code=$?
+    debug "Command exited with code: $exit_code"
+    
+    # Determine flash pattern based on exit code
+    if [ $exit_code -eq 0 ]; then
+        # Success: normal flash
+        FLASH_COUNT=2
+    else
+        # Failure: rapid triple flash
+        FLASH_COUNT=3
+        FLASH_INTERVAL=0.1
+    fi
+    
+    # Flash and preserve the original exit code
+    flash_menu_bar $FLASH_COUNT $FLASH_INTERVAL $exit_code
+    exit $exit_code
+}
+
+# Check if running on macOS
+if [[ "$OSTYPE" != "darwin"* ]]; then
+    error "flash_notify requires macOS"
+    exit 1
+fi
+
+# Run main function
+main "$@"
