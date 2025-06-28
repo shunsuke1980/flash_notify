@@ -2,7 +2,7 @@
 
 A lightweight command-line tool that provides instant visual feedback by flashing the macOS menu bar when commands complete. Perfect for long-running tasks where you want to be notified without intrusive sounds or pop-ups.
 
-![flash_notify demo](https://user-images.githubusercontent.com/demo/flash_notify-demo.gif)
+![sample_movie](https://github.com/user-attachments/assets/57f8e77c-5bc9-4954-9485-e267cf20e324)
 
 ## Features
 
